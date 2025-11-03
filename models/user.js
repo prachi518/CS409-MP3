@@ -3,7 +3,23 @@ var mongoose = require('mongoose');
 
 // Define our user schema
 var UserSchema = new mongoose.Schema({
-    name: String
+    name: { 
+        type: String, 
+        required: [true, "Name is required"] 
+    },
+    email: { 
+        type: String, 
+        required: [true, "Email is required"], 
+        unique: true 
+    },
+    pendingTasks: { 
+        type: [String], 
+        default: [] 
+    },
+    dateCreated: { 
+        type: Date, 
+        default: Date.now 
+    }
 });
 
 // Export the Mongoose model
