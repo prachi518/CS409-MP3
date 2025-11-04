@@ -96,46 +96,39 @@ module.exports = function (router) {
     //  PUT /api/users/:id
     router.put('/users/:id', async (req, res) => {
         try {
-            const { name, email, pendingTasks } = req.body;
+            const { name, email, pendingTasks = [] } = req.body;
 
-            // Must have name & email
             if (!name || !email)
                 return res.status(400).json({ message: "Name and email required", data: {} });
 
-            // Check if user exists
             const user = await User.findById(req.params.id);
-            if (!user) {
+            if (!user)
                 return res.status(404).json({ message: "User not found", data: {} });
-            }
 
-            // Ensure email is unique on update
+            //Email must be unique
             const existing = await User.findOne({ email });
             if (existing && existing._id.toString() !== req.params.id) {
-                return res.status(400).json({
-                    message: "Email already exists",
-                    data: {}
-                });
+                return res.status(400).json({ message: "Email already exists", data: {} });
             }
 
-            // Validate pending tasks & sync tasks collection
-            if (pendingTasks && Array.isArray(pendingTasks)) {
+            //Validate & sync pending tasks
+            if (Array.isArray(pendingTasks)) {
                 for (let taskId of pendingTasks) {
                     const task = await Task.findById(taskId);
-                    if (!task) {
-                        return res.status(400).json({ message: "Task " + taskId + " not found", data: {} });
-                    }
 
-                    // Task belongs to another user → reject
+                    if (!task)
+                        return res.status(400).json({ message: `Task ${taskId} not found`, data: {} });
+
+                    //Cannot touch completed tasks
+                    if (task.completed)
+                        return res.status(400).json({ message: `Task ${taskId} is completed. Cannot modify`, data: {} });
+
+                    // Reassign logic
                     if (task.assignedUser && task.assignedUser.toString() !== req.params.id) {
-                        return res.status(400).json({
-                            message: "Task already assigned to another user",
-                            data: {}
+                        // move task from previous user → this user
+                        await User.findByIdAndUpdate(task.assignedUser, {
+                            $pull: { pendingTasks: task._id }
                         });
-                    }
-
-                    // Re-open completed tasks if user marks them pending
-                    if (task.completed) {
-                        await Task.findByIdAndUpdate(taskId, { completed: false });
                     }
 
                     // Assign task to this user
@@ -145,11 +138,13 @@ module.exports = function (router) {
                     });
                 }
 
-                // Remove tasks from old pending list that are not in new one
-                const oldTasks = user.pendingTasks || [];
-                for (let oldTaskId of oldTasks) {
-                    if (!pendingTasks.includes(oldTaskId.toString())) {
-                        await Task.findByIdAndUpdate(oldTaskId, {
+                //Remove tasks no longer in pending list
+                const oldPending = user.pendingTasks.map(String);
+                const newPending = pendingTasks.map(String);
+
+                for (let oldId of oldPending) {
+                    if (!newPending.includes(oldId)) {
+                        await Task.findByIdAndUpdate(oldId, {
                             assignedUser: "",
                             assignedUserName: "unassigned"
                         });
@@ -157,11 +152,17 @@ module.exports = function (router) {
                 }
             }
 
-            // Now update user
+            //Now updating the user
             const updatedUser = await User.findByIdAndUpdate(
                 req.params.id,
-                req.body,
+                { name, email, pendingTasks },
                 { new: true }
+            );
+
+            //Cascade name change to tasks
+            await Task.updateMany(
+                { assignedUser: req.params.id },
+                { assignedUserName: name }
             );
 
             return res.status(200).json({ message: "User updated", data: updatedUser });

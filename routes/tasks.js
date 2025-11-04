@@ -36,7 +36,7 @@ module.exports = function (router) {
                 return res.status(200).json({ message: "OK", data: results.length });
             }
 
-            //Normal uery mode
+            //normal query mode
             const tasks = await Task.find(where)
                 .sort(sort)
                 .collation({ locale: "en", strength: 1 })
@@ -54,58 +54,45 @@ module.exports = function (router) {
     // POST /api/tasks
     router.post('/tasks', async (req, res) => {
         try {
-            const { name, deadline, assignedUser, completed } = req.body;
+            const { name, deadline, assignedUser, assignedUserName, completed } = req.body;
 
             if (!name || !deadline)
-            return res.status(400).json({ message: "Name and deadline required", data: {} });
+                return res.status(400).json({ message: "Name and deadline required", data: {} });
 
-            // Validate assignedUser if provided
+            let userDoc = null;
+
             if (assignedUser) {
-                let userDoc;
                 try { userDoc = await User.findById(assignedUser); }
-                catch {
-                    return res.status(400).json({
-                        message: "Invalid assignedUser ID",
-                        data: {}
-                    });
-                }
+                catch { return res.status(400).json({ message: "Invalid assignedUser ID", data: {} }); }
 
-                if (!userDoc) {
-                    return res.status(400).json({
-                        message: "assignedUser does not exist",
-                        data: {}
-                    });
-                }
+                if (!userDoc)
+                    return res.status(400).json({ message: "assignedUser does not exist", data: {} });
 
-                // If assignedUserName exists in request, ensure match
-                if (req.body.assignedUserName && req.body.assignedUserName !== userDoc.name) {
-                    return res.status(400).json({
-                        message: "assignedUserName does not match assignedUser",
-                        data: {}
-                    });
-                }
+                if (assignedUserName && assignedUserName !== userDoc.name)
+                    return res.status(400).json({ message: "assignedUserName does not match assignedUser", data: {} });
 
-                // Enforce correct name
                 req.body.assignedUserName = userDoc.name;
             } else {
+                //Name without user → invalid
+                if (assignedUserName && assignedUserName !== "" && assignedUserName !== "unassigned")
+                    return res.status(400).json({ message: "assignedUserName provided without assignedUser", data: {} });
+
                 req.body.assignedUserName = "unassigned";
             }
 
-            const newTask = new Task(req.body);
-            const saved = await newTask.save();
+            // Allow completed=true during seeding — just don't add to pendingTasks
+            const saved = await new Task(req.body).save();
 
-            //  Only add to pendingTasks if NOT completed
-            if (assignedUser && !completed) {
-            await User.findByIdAndUpdate(assignedUser, {
-                $addToSet: { pendingTasks: saved._id }
-            });
-            }
+            if (assignedUser && !completed)
+                await User.findByIdAndUpdate(assignedUser, { $addToSet: { pendingTasks: saved._id } });
+
             return res.status(201).json({ message: "Task created", data: saved });
 
         } catch (err) {
             return res.status(500).json({ message: "Server error creating task", data: err.message });
         }
     });
+
 
     //  GET /api/tasks/:id
     router.get('/tasks/:id', async (req, res) => {
@@ -123,7 +110,7 @@ module.exports = function (router) {
         }
     });
 
-    //  PUT /api/tasks/:id
+    // PUT /api/tasks/:id
     router.put('/tasks/:id', async (req, res) => {
         try {
             const { name, deadline, assignedUser, assignedUserName, completed } = req.body;
@@ -135,7 +122,34 @@ module.exports = function (router) {
             if (!oldTask)
                 return res.status(404).json({ message: "Task not found", data: {} });
 
-            // Validate assignedUser if provided
+            //Completed tasks cannot be modified
+            if (oldTask.completed)
+                return res.status(400).json({ message: "Cannot update a completed task", data: {} });
+
+            //If task was active and is now being marked completed
+            if (!oldTask.completed && completed === true) {
+
+                // Remove from pendingTasks if it had a user
+                if (oldTask.assignedUser) {
+                    await User.findByIdAndUpdate(oldTask.assignedUser, {
+                        $pull: { pendingTasks: oldTask._id }
+                    });
+                }
+
+                // Update JUST completion, freeze task hereafter
+                const completedTask = await Task.findByIdAndUpdate(
+                    req.params.id,
+                    { completed: true },
+                    { new: true }
+                );
+
+                return res.status(200).json({
+                    message: "Task marked completed",
+                    data: completedTask
+                });
+            }
+
+            //Validate assignedUser
             let newUserDoc = null;
             if (assignedUser) {
                 try { newUserDoc = await User.findById(assignedUser); }
@@ -144,50 +158,42 @@ module.exports = function (router) {
                 if (!newUserDoc)
                     return res.status(400).json({ message: "assignedUser does not exist", data: {} });
 
-                // If assignedUserName provided, must match DB user name
                 if (assignedUserName && assignedUserName !== newUserDoc.name)
                     return res.status(400).json({ message: "assignedUserName does not match assignedUser", data: {} });
 
+                req.body.assignedUserName = newUserDoc.name;
             } else {
-                // If no assignedUser, ignore assignedUserName
+                //assignedUserName provided without assignedUser
+                if (assignedUserName && assignedUserName !== "" && assignedUserName !== "unassigned")
+                    return res.status(400).json({
+                        message: "assignedUserName provided without assignedUser",
+                        data: {}
+                    });
+
                 req.body.assignedUserName = "unassigned";
             }
 
-            // Update task
+            //Normal update for still-active tasks
             const updated = await Task.findByIdAndUpdate(req.params.id, req.body, { new: true });
 
             const oldUser = oldTask.assignedUser;
             const newUser = updated.assignedUser;
 
-            // If completed → remove from pending lists
-            if (updated.completed) {
-                if (oldUser)
-                    await User.findByIdAndUpdate(oldUser, { $pull: { pendingTasks: updated._id } });
-                if (newUser && newUser !== oldUser)
-                    await User.findByIdAndUpdate(newUser, { $pull: { pendingTasks: updated._id } });
-            }
+            // Remove from old user pendingTasks if reassigned
+            if (oldUser && oldUser.toString() !== newUser?.toString())
+                await User.findByIdAndUpdate(oldUser, { $pull: { pendingTasks: updated._id } });
 
-            // If reopened & assigned → add to pendingTasks
-            if (oldTask.completed && !updated.completed && newUser) {
+            // Add to new user's pendingTasks if not completed
+            if (newUser && !updated.completed)
                 await User.findByIdAndUpdate(newUser, { $addToSet: { pendingTasks: updated._id } });
-            }
-
-            // Assignment changed & not completed
-            if (oldUser !== newUser && !updated.completed) {
-                if (oldUser)
-                    await User.findByIdAndUpdate(oldUser, { $pull: { pendingTasks: updated._id } });
-
-                if (newUser)
-                    await User.findByIdAndUpdate(newUser, { $addToSet: { pendingTasks: updated._id } });
-            }
 
             return res.status(200).json({ message: "Task updated", data: updated });
 
         } catch (err) {
-            console.log("TASK PUT ERROR", err);
-            return res.status(400).json({ message: "Failed to update task", data: {} });
+            return res.status(400).json({ message: "Failed to update task", data: err.message });
         }
     });
+
 
 
     //  DELETE /api/tasks/:id
