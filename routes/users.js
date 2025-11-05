@@ -101,11 +101,29 @@ module.exports = function (router) {
         try {
             const { name, email, pendingTasks = [] } = req.body;
 
-            //Prevent client from modifying creation date, basically ignores even if you try to change
+            //Prevent client from modifying creation date and id, basically ignores even if he try to change
             if ("dateCreated" in req.body) delete req.body.dateCreated;
+            if ("_id" in req.body) delete req.body._id;
+            
+            // Fields required in PUT for User
+            const requiredFields = [
+                "name",
+                "email",
+                "pendingTasks"
+            ];
 
-            if (!name || !email)
-                return res.status(400).json({ message: "Name and email required", data: {} });
+            // check missing fields
+            const missing = requiredFields.filter(f => !(f in req.body));
+            if (missing.length) {
+                return res.status(400).json({
+                    message: `${missing.join(', ')} field(s) are required`,
+                    data: {}
+                });
+            }
+
+            // earlier requirement, then it changed :(
+            // if (!name || !email)
+            //     return res.status(400).json({ message: "Name and email required", data: {} });
 
             if (email.indexOf('@') === -1)
                 return res.status(400).json({ message: "Please provide a valid email", data: {} });
