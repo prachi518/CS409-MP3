@@ -119,6 +119,9 @@ module.exports = function (router) {
         try {
             const { name, deadline, assignedUser, assignedUserName, completed } = req.body;
 
+            //Prevent client from modifying creation date, basically ignores even if you try to change
+            if ("dateCreated" in req.body) delete req.body.dateCreated;
+
             if (!name || !deadline)
                 return res.status(400).json({ message: "Name and deadline required", data: {} });
 

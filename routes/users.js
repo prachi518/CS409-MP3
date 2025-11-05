@@ -101,6 +101,9 @@ module.exports = function (router) {
         try {
             const { name, email, pendingTasks = [] } = req.body;
 
+            //Prevent client from modifying creation date, basically ignores even if you try to change
+            if ("dateCreated" in req.body) delete req.body.dateCreated;
+
             if (!name || !email)
                 return res.status(400).json({ message: "Name and email required", data: {} });
 
