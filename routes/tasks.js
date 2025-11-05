@@ -59,6 +59,10 @@ module.exports = function (router) {
             if (!name || !deadline)
                 return res.status(400).json({ message: "Name and deadline required", data: {} });
 
+            //This stops creation of already-completed assigned task, however this was commented out while filling the db
+            if (completed && assignedUser)
+                return res.status(400).json({message: "Cannot assign a completed task",data: {}});
+
             let userDoc = null;
 
             if (assignedUser) {
@@ -106,7 +110,7 @@ module.exports = function (router) {
             return res.status(200).json({ message: "OK", data: task });
 
         } catch (err) {
-            return res.status(400).json({ message: "Invalid task ID", data: {} });
+            return res.status(400).json({ message: "Invalid task ID. Task IDs are 24 character long.", data: {} });
         }
     });
 
@@ -193,8 +197,6 @@ module.exports = function (router) {
             return res.status(400).json({ message: "Failed to update task", data: err.message });
         }
     });
-
-
 
     //  DELETE /api/tasks/:id
     router.delete('/tasks/:id', async (req, res) => {

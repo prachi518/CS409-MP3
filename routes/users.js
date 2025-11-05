@@ -60,6 +60,9 @@ module.exports = function (router) {
             if (!name || !email)
                 return res.status(400).json({ message: "Name and email required", data: {} });
 
+            if (email.indexOf('@') === -1)
+                return res.status(400).json({ message: "Please provide a valid email", data: {} });
+
             const user = new User(req.body);
             const saved = await user.save();
 
@@ -89,7 +92,7 @@ module.exports = function (router) {
             return res.status(200).json({ message: "OK", data: user });
 
         } catch (err) {
-            return res.status(400).json({ message: "Invalid user ID", data: {} });
+            return res.status(400).json({ message: "Invalid user ID. User IDs are 24 character long.", data: {} });
         }
     });
 
@@ -100,6 +103,9 @@ module.exports = function (router) {
 
             if (!name || !email)
                 return res.status(400).json({ message: "Name and email required", data: {} });
+
+            if (email.indexOf('@') === -1)
+                return res.status(400).json({ message: "Please provide a valid email", data: {} });
 
             const user = await User.findById(req.params.id);
             if (!user)
