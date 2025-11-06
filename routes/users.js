@@ -65,6 +65,10 @@ module.exports = function (router) {
             if (!name || !email)
                 return res.status(400).json({ message: "Name and email required", data: {} });
 
+            if (!name.trim() || !email.trim())
+                return res.status(400).json({ message: "Name and email cannot be empty", data: {} });
+
+
             if (email.indexOf('@') === -1)
                 return res.status(400).json({ message: "Please provide a valid email", data: {} });
 
@@ -75,9 +79,9 @@ module.exports = function (router) {
             // validate and reassign pending tasks
             let task = null;
             for (let taskId of pendingTasks) {
-                // const task = await Task.findById(taskId);
+
                 try {task = await Task.findById(taskId); }
-                catch { return res.status(400).json({ message: "Invalid Task ID", data: {} }); }
+                catch { return res.status(400).json({ message: "Invalid Task ID, Task IDs are 24 character long.", data: {} }); }
 
                 // The 2 conditions below was commented out while filling the db, as 1st can interrupt in between task vs user creation 
                 // and 2nd one stops allocation of already-completed task, which should be allowed when filling the db
@@ -173,6 +177,9 @@ module.exports = function (router) {
             // if (!name || !email)
             //     return res.status(400).json({ message: "Name and email required", data: {} });
 
+            if (!name.trim() || !email.trim())
+                return res.status(400).json({ message: "Name and email cannot be empty", data: {} });
+
             if (email.indexOf('@') === -1)
                 return res.status(400).json({ message: "Please provide a valid email", data: {} });
 
@@ -193,7 +200,7 @@ module.exports = function (router) {
                     // const task = await Task.findById(taskId);
 
                     try {task = await Task.findById(taskId); }
-                    catch { return res.status(400).json({ message: "Invalid Task ID", data: {} }); }
+                    catch { return res.status(400).json({ message: "Invalid Task ID, Task IDs are 24 character long.", data: {} }); }
 
                     if (!task)
                         return res.status(400).json({ message: `Task ${taskId} not found`, data: {} });
@@ -247,7 +254,7 @@ module.exports = function (router) {
             return res.status(200).json({ message: "User updated", data: updatedUser });
 
         } catch (err) {
-            return res.status(400).json({ message: "Failed to update user", data: err.message });
+            return res.status(500).json({ message: "Internal server error while updating user", data: err.message });
         }
     });
 
@@ -255,7 +262,13 @@ module.exports = function (router) {
     //  DELETE /api/users/:id
     router.delete('/users/:id', async (req, res) => {
         try {
-            const user = await User.findById(req.params.id);
+            let user;
+            try {
+            user = await User.findById(req.params.id);
+            } catch {
+                return res.status(400).json({ message: "Invalid User ID, User IDs are 24 character long.", data: {} });
+            }
+
             if (!user)
                 return res.status(404).json({ message: "User not found", data: {} });
 
@@ -266,11 +279,10 @@ module.exports = function (router) {
             );
 
             await User.findByIdAndDelete(req.params.id);
-
             return res.status(204).send(); // no content
 
         } catch (err) {
-            return res.status(400).json({ message: "Error deleting user", data: err.message });
+            return res.status(500).json({ message: "Internal server error while deleting user", data: err.message });
         }
     });
 

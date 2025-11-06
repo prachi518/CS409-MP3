@@ -67,7 +67,7 @@ module.exports = function (router) {
 
             if (assignedUser) {
                 try { userDoc = await User.findById(assignedUser); }
-                catch { return res.status(400).json({ message: "Invalid assignedUser ID", data: {} }); }
+                catch { return res.status(400).json({ message: "Invalid assignedUser ID, User IDs are 24 character long.", data: {} }); }
 
                 if (!userDoc)
                     return res.status(400).json({ message: "assignedUser does not exist", data: {} });
@@ -98,7 +98,7 @@ module.exports = function (router) {
     });
 
 
-    //  GET /api/tasks/:id
+    // GET /api/tasks/:id
     router.get('/tasks/:id', async (req, res) => {
         try {
             const select = safeJSON(req.query.select, {});
@@ -144,6 +144,10 @@ module.exports = function (router) {
             // earlier requirement, then it changed :(
             // if (!name || !deadline)
             //     return res.status(400).json({ message: "Name and deadline required", data: {} });
+            
+            if (!name.trim() || !deadline.trim())
+                return res.status(400).json({ message: "Name and deadline cannot be empty", data: {} });
+
 
             const oldTask = await Task.findById(req.params.id);
             if (!oldTask)
@@ -157,7 +161,7 @@ module.exports = function (router) {
             let newUserDoc = null;
             if (assignedUser) {
                 try { newUserDoc = await User.findById(assignedUser); }
-                catch { return res.status(400).json({ message: "Invalid assignedUser ID", data: {} }); }
+                catch { return res.status(400).json({ message: "Invalid assignedUser ID, User IDs are 24 character long.", data: {} }); }
 
                 if (!newUserDoc)
                     return res.status(400).json({ message: "assignedUser does not exist", data: {} });
@@ -207,14 +211,20 @@ module.exports = function (router) {
             return res.status(200).json({ message: "Task updated", data: updated });
 
         } catch (err) {
-            return res.status(400).json({ message: "Failed to update task", data: err.message });
+            return res.status(500).json({ message: "Internal server error while updating task", data: err.message });
         }
     });
 
     //  DELETE /api/tasks/:id
     router.delete('/tasks/:id', async (req, res) => {
         try {
-            const task = await Task.findById(req.params.id);
+            let task;
+            try {
+            task = await Task.findById(req.params.id);
+            } catch {
+                return res.status(400).json({ message: "Invalid Task ID, Task IDs are 24 character long.", data: {} });
+            }
+
             if (!task)
                 return res.status(404).json({ message: "Task not found", data: {} });
 
@@ -226,10 +236,10 @@ module.exports = function (router) {
             }
 
             await Task.findByIdAndDelete(req.params.id);
-            return res.status(204).send();
+            return res.status(204).send(); // no content
 
         } catch (err) {
-            return res.status(400).json({ message: "Error deleting task", data: err.message });
+            return res.status(500).json({ message: "Internal server error while deleting task", data: err.message });
         }
     });
 
