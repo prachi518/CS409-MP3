@@ -8,7 +8,7 @@ module.exports = function (router) {
         catch { return fallback; }
     }
 
-    //  GET /api/tasks
+    // GET /api/tasks
     router.get('/tasks', async (req, res) => {
         try {
             const where  = safeJSON(req.query.where, {});
@@ -19,13 +19,13 @@ module.exports = function (router) {
 
             //count mode
             if (req.query.count === "true") {
-                // No pagination → full count
+                // no pagination → full count
                 if (!req.query.skip && !req.query.limit) {
                     const fullCount = await Task.countDocuments(where);
                     return res.status(200).json({ message: "OK", data: fullCount });
                 }
 
-                // Pagination exists → count after pagination
+                // pagination exists → count after pagination
                 const results = await Task.find(where)
                     .sort(sort)
                     .collation({ locale: "en", strength: 1 })
@@ -77,14 +77,14 @@ module.exports = function (router) {
 
                 req.body.assignedUserName = userDoc.name;
             } else {
-                //Name without user → invalid
+                // name without user → invalid
                 if (assignedUserName && assignedUserName !== "" && assignedUserName !== "unassigned")
                     return res.status(400).json({ message: "assignedUserName provided without assignedUser", data: {} });
 
                 req.body.assignedUserName = "unassigned";
             }
 
-            // Allow completed=true during seeding — just don't add to pendingTasks
+            // allowing completed=true during seeding — just don't add to pendingTasks
             const saved = await new Task(req.body).save();
 
             if (assignedUser && !completed)
@@ -117,7 +117,7 @@ module.exports = function (router) {
     // PUT /api/tasks/:id
     router.put('/tasks/:id', async (req, res) => {
         try {
-            const { name, deadline, assignedUser, assignedUserName, completed } = req.body;
+            const { name, description, deadline, assignedUser, assignedUserName, completed } = req.body;
 
             //Prevent client from modifying creation date, basically ignores even if he try to change
             if ("dateCreated" in req.body) delete req.body.dateCreated;
@@ -129,8 +129,7 @@ module.exports = function (router) {
                 "description",
                 "deadline",
                 "completed",
-                "assignedUser",
-                "assignedUserName"
+                "assignedUser"
             ];
 
             // check missing fields
@@ -153,29 +152,6 @@ module.exports = function (router) {
             //Completed tasks cannot be modified
             if (oldTask.completed)
                 return res.status(400).json({ message: "Cannot update a completed task", data: {} });
-
-            //If task was active and is now being marked completed
-            if (!oldTask.completed && completed === true) {
-
-                // Remove from pendingTasks if it had a user
-                if (oldTask.assignedUser) {
-                    await User.findByIdAndUpdate(oldTask.assignedUser, {
-                        $pull: { pendingTasks: oldTask._id }
-                    });
-                }
-
-                // Update JUST completion, freeze task hereafter
-                const completedTask = await Task.findByIdAndUpdate(
-                    req.params.id,
-                    { completed: true },
-                    { new: true }
-                );
-
-                return res.status(200).json({
-                    message: "Task marked completed",
-                    data: completedTask
-                });
-            }
 
             //Validate assignedUser
             let newUserDoc = null;
@@ -203,9 +179,22 @@ module.exports = function (router) {
 
             //Normal update for still-active tasks
             const updated = await Task.findByIdAndUpdate(req.params.id, req.body, { new: true });
-
             const oldUser = oldTask.assignedUser;
             const newUser = updated.assignedUser;
+
+            // assuming you can’t mark a task completed while assigning or reassigning it, don't want conflict here.
+            // if task was active and is now being marked completed
+            if (!oldTask.completed && updated.completed === true) {
+
+                // Remove from pendingTasks if it had a user
+                if (oldUser) {
+                await User.findByIdAndUpdate(oldUser, { $pull: { pendingTasks: updated._id } });
+                }
+                return res.status(200).json({
+                    message: "Task marked completed",
+                    data: updated
+                });
+            }
 
             // Remove from old user pendingTasks if reassigned
             if (oldUser && oldUser.toString() !== newUser?.toString())

@@ -3,7 +3,7 @@ const Task = require('../models/task');
 
 module.exports = function (router) {
 
-    //  Safe JSON parser for query params
+    // safe JSON parser for query params
     function safeJSON(str, fallback) {
         try { return JSON.parse(str); }
         catch { return fallback; }
@@ -52,34 +52,82 @@ module.exports = function (router) {
         }
     });
 
-    //  POST /api/users
+    // POST /api/users
     router.post('/users', async (req, res) => {
         try {
-            const { name, email } = req.body;
+            const { name, email, pendingTasks = [] } = req.body;
 
+            //Prevent client from adding teir own creation date and id, basically ignores even if he try to add
+            if ("dateCreated" in req.body) delete req.body.dateCreated;
+            if ("_id" in req.body) delete req.body._id;
+
+            // Basic validation
             if (!name || !email)
                 return res.status(400).json({ message: "Name and email required", data: {} });
 
             if (email.indexOf('@') === -1)
                 return res.status(400).json({ message: "Please provide a valid email", data: {} });
 
-            const user = new User(req.body);
-            const saved = await user.save();
+            const existing = await User.findOne({ email });
+            if (existing)
+                return res.status(400).json({ message: "Email already exists", data: {} });
+
+            // validate and reassign pending tasks
+            let task = null;
+            for (let taskId of pendingTasks) {
+                // const task = await Task.findById(taskId);
+                try {task = await Task.findById(taskId); }
+                catch { return res.status(400).json({ message: "Invalid Task ID", data: {} }); }
+
+                // The 2 conditions below was commented out while filling the db, as 1st can interrupt in between task vs user creation 
+                // and 2nd one stops allocation of already-completed task, which should be allowed when filling the db
+                if (!task)
+                    return res.status(400).json({ message: `Task ${taskId} not found`, data: {} });
+
+                // Completed tasks can’t be added
+                if (task.completed)
+                    return res.status(400).json({
+                        message: `Task ${taskId} is completed and cannot be assigned`,
+                        data: {}
+                    });
+
+                // if task already assigned to another user, remove from that user's list
+                if (task.assignedUser && task.assignedUser !== "") {
+                    await User.findByIdAndUpdate(task.assignedUser, {
+                        $pull: { pendingTasks: task._id }
+                    });
+                }
+            }
+
+            // creating new user
+            const newUser = new User({ name, email, pendingTasks });
+            const savedUser = await newUser.save();
+
+            // assigning tasks to this new user
+            for (let taskId of pendingTasks) {
+                await Task.findByIdAndUpdate(taskId, {
+                    assignedUser: savedUser._id,
+                    assignedUserName: savedUser.name
+                });
+            }
 
             return res.status(201).json({
                 message: "User created",
-                data: saved
+                data: savedUser
             });
 
         } catch (err) {
-            if (err.code === 11000) {
+            if (err.code === 11000)
                 return res.status(400).json({ message: "Email already exists", data: {} });
-            }
-            return res.status(500).json({ message: "Server error creating user", data: err.message });
+
+            return res.status(500).json({
+                message: "Server error creating user",
+                data: err.message
+            });
         }
     });
 
-    //  GET /api/users/:id
+    // GET /api/users/:id
     router.get('/users/:id', async (req, res) => {
         try {
             const select = safeJSON(req.query.select, {});
@@ -96,16 +144,16 @@ module.exports = function (router) {
         }
     });
 
-    //  PUT /api/users/:id
+    // PUT /api/users/:id
     router.put('/users/:id', async (req, res) => {
         try {
             const { name, email, pendingTasks = [] } = req.body;
 
-            //Prevent client from modifying creation date and id, basically ignores even if he try to change
+            // preventing client from modifying creation date and id, basically ignores even if he try to change
             if ("dateCreated" in req.body) delete req.body.dateCreated;
             if ("_id" in req.body) delete req.body._id;
             
-            // Fields required in PUT for User
+            // fields required in PUT for User
             const requiredFields = [
                 "name",
                 "email",
@@ -140,8 +188,12 @@ module.exports = function (router) {
 
             //Validate & sync pending tasks
             if (Array.isArray(pendingTasks)) {
+                let task = null;
                 for (let taskId of pendingTasks) {
-                    const task = await Task.findById(taskId);
+                    // const task = await Task.findById(taskId);
+
+                    try {task = await Task.findById(taskId); }
+                    catch { return res.status(400).json({ message: "Invalid Task ID", data: {} }); }
 
                     if (!task)
                         return res.status(400).json({ message: `Task ${taskId} not found`, data: {} });
